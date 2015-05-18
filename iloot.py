@@ -73,6 +73,7 @@ def plist_request(host, method, url, body, headers):
     response = conn.getresponse()
 
     data = response.read()
+
     try:
         plist_data = plistlib.readPlistFromString(data)
     except:
@@ -541,18 +542,24 @@ class MobileBackupClient(object):
         mbdb_file.close()
 
 
-def download_backup(login, password, output_folder, types, chosen_snapshot_id, combined, itunes_style, domain, threads):
+def download_backup(output_folder, types, chosen_snapshot_id, combined, itunes_style, domain, threads, login="", password="", token=""):
     print 'Working with %s : %s' % (login, password)
     print 'Output directory :', output_folder
 
-    auth = "Basic %s" % base64.b64encode("%s:%s" % (login, password))
-    authenticateResponse = plist_request("setup.icloud.com", "POST", "/setup/authenticate/$APPLE_ID$", "", {"Authorization": auth})
-    if not authenticateResponse:
-        # There was an error authenticating the user.
-        return
+    if token:
+        dsPrsID = base64.b64decode(token).split(':')[0]
+        auth = "Basic %s" % token
+        mobileme_auth = "X-MobileMe-AuthToken %s" % token
+    else:
+        auth = "Basic %s" % base64.b64encode("%s:%s" % (login, password))
+        authenticateResponse = plist_request("setup.icloud.com", "POST", "/setup/authenticate/$APPLE_ID$", "", {"Authorization": auth})
+        if not authenticateResponse:
+            # There was an error authenticating the user.
+            return
 
-    dsPrsID = authenticateResponse["appleAccountInfo"]["dsPrsID"]
-    auth = "Basic %s" % base64.b64encode("%s:%s" % (dsPrsID, authenticateResponse["tokens"]["mmeAuthToken"]))
+        dsPrsID = authenticateResponse["appleAccountInfo"]["dsPrsID"]
+        auth = "Basic %s" % base64.b64encode("%s:%s" % (dsPrsID, authenticateResponse["tokens"]["mmeAuthToken"]))
+        mobileme_auth = "X-MobileMe-AuthToken %s" % base64.b64encode("%s:%s" % (dsPrsID, authenticateResponse["tokens"]["mmeAuthToken"]))
 
     headers = {
         'Authorization': auth,
@@ -560,8 +567,8 @@ def download_backup(login, password, output_folder, types, chosen_snapshot_id, c
         'User-Agent': USER_AGENT_UBD
     }
     account_settings = plist_request("setup.icloud.com", "POST", "/setup/get_account_settings", "", headers)
-    auth = "X-MobileMe-AuthToken %s" % base64.b64encode("%s:%s" % (dsPrsID, authenticateResponse["tokens"]["mmeAuthToken"]))
-    client = MobileBackupClient(account_settings, dsPrsID, auth, output_folder)
+
+    client = MobileBackupClient(account_settings, dsPrsID, mobileme_auth, output_folder)
 
     client.chosen_snapshot_id = chosen_snapshot_id
     client.combined = combined
@@ -598,8 +605,8 @@ def backup_summary(mbsbackup):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(prog='iloot')
-    parser.add_argument("apple_id", type=str, default=None, help="Apple ID")
-    parser.add_argument("password", type=str, default=None, help="Password")
+    parser.add_argument("--id", type=str, default=None, help="Apple ID")
+    parser.add_argument("--password", type=str, default=None, help="Password")
 
     parser.add_argument("--threads", type=int, default=DEFAULT_THREADS, help="Download thread pool size")
     parser.add_argument("--output", "-o", type=str, default="output",
@@ -624,7 +631,9 @@ if __name__ == "__main__":
 
     parser.add_argument("--domain", "-d", type=str, default=None,
             help="Limit files to those within a specific application domain")
+			
+    parser.add_argument("--auth", "-a", type=str, default=None,
+            help="Provide an auth token instead of username / password (useful if you don't have the password, but have sniffed the token)")
 
     args = parser.parse_args()
-    download_backup(args.apple_id, args.password, args.output, args.item_types, args.snapshot, args.combined, args.itunes_style, args.domain, args.threads)
-
+    download_backup(args.output, args.item_types, args.snapshot, args.combined, args.itunes_style, args.domain, args.threads, login=args.id, password=args.password, token=args.auth)
